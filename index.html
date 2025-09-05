@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Year-on-a-Page PDF (Client-side)</title>
+<style>
+  :root {
+    --bg: #0f0f12; --fg: #e8e8e8; --muted:#9aa0a6; --accent:#7dd3fc;
+    --panel:#16181d; --input:#0e1116; --border:#24262c;
+  }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font: 16px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Inter, sans-serif;
+    background: var(--bg); color: var(--fg); display: grid; place-items: start center; padding: 24px;
+  }
+  .card {
+    width: min(1100px, 96vw);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px;
+    box-shadow: 0 10px 24px rgba(0,0,0,.35);
+  }
+  h1 { font-size: 20px; margin: 0 0 14px; letter-spacing: .2px }
+  .row { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; align-items: end; }
+  .row + .row { margin-top: 10px; }
+  label { display:block; font-size: 12px; color: var(--muted); margin: 0 0 6px; }
+  input[type="date"], input[type="number"], select, input[type="color"], input[type="text"] {
+    width: 100%; box-sizing: border-box; border-radius: 10px; padding: 10px 12px; border: 1px solid var(--border);
+    background: var(--input); color: var(--fg); font-size: 14px; outline: none;
+  }
+  input[type="color"] { padding: 6px; height: 42px; }
+  input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .btn {
+    display: inline-flex; align-items:center; gap: 8px; padding: 11px 14px; border-radius: 10px; border: 1px solid var(--border);
+    cursor: pointer; background: #0b84f3; color: #fff; font-weight: 600; letter-spacing:.2px;
+  }
+  .btn.secondary { background: #2b2f36; color: var(--fg); }
+  .stack { display:flex; gap:10px; flex-wrap: wrap; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .hr { height:1px; background: var(--border); margin: 14px 0; }
+  .footer { display:flex; justify-content: space-between; align-items:center; margin-top: 10px; flex-wrap: wrap; gap: 8px; }
+  /* Preview pane now white to mimic paper */
+  #previewWrap { margin-top: 14px; background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  #previewMeta { display:flex; justify-content: space-between; align-items:center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  #preview { width: 100%; height: auto; display: block; background: #fff; border-radius: 8px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>Year-on-a-Page PDF Generator</h1>
+
+    <!-- Core settings -->
+    <div class="row">
+      <div style="grid-column: span 3;">
+        <label for="firstDate">Start date (YYYY-MM-DD)</label>
+        <input id="firstDate" type="date" />
+      </div>
+      <div style="grid-column: span 2;">
+        <label for="pageW">Width</label>
+        <input id="pageW" type="number" step="0.01" value="11" />
+      </div>
+      <div style="grid-column: span 2;">
+        <label for="pageH">Height</label>
+        <input id="pageH" type="number" step="0.01" value="17" />
+      </div>
+      <div style="grid-column: span 2;">
+        <label for="unit">Units</label>
+        <select id="unit">
+          <option value="in" selected>inches</option>
+          <option value="mm">millimeters</option>
+          <option value="px">pixels (@96dpi)</option>
+        </select>
+      </div>
+      <div style="grid-column: span 1;">
+        <label for="margin">Outer margin (pt)</label>
+        <input id="margin" type="number" step="1" value="0" />
+      </div>
+      <div style="grid-column: span 2; display:flex; align-items:flex-end;">
+        <div class="stack" style="width:100%">
+          <button class="btn" id="genBtn">Download PDF</button>
+          <button class="btn secondary" id="trySample" title="Reset all settings to defaults"></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Typography & Colors -->
+    <div class="row" style="margin-top:10px">
+      <div style="grid-column: span 3;">
+        <label for="fontSel">Font</label>
+        <select id="fontSel">
+          <option value="Courier-Bold" selected>Courier-Bold (mono)</option>
+          <option value="Courier">Courier (mono)</option>
+          <option value="Helvetica">Helvetica</option>
+          <option value="Helvetica-Bold">Helvetica-Bold</option>
+          <option value="Times-Roman">Times-Roman</option>
+          <option value="Times-Bold">Times-Bold</option>
+        </select>
+      </div>
+      <div style="grid-column: span 3;">
+        <label for="dailyColor">Daily text color</label>
+        <input id="dailyColor" type="color" value="#dbdbdb" />
+      </div>
+      <div style="grid-column: span 3;">
+        <label for="monthColor">Month-start color (borders, header, Jan-1 text)</label>
+        <input id="monthColor" type="color" value="#242424" />
+      </div>
+      <div style="grid-column: span 3;">
+        <label for="normalBorderColor">Normal-day border color</label>
+        <input id="normalBorderColor" type="color" value="#dbdbdb" />
+      </div>
+    </div>
+
+    <!-- Border controls & sharing -->
+    <div class="row" style="margin-top:10px">
+      <div style="grid-column: span 3;">
+        <label for="thinPct">Thin border (% of min cell side, e.g. 0.003 = 0.3%)</label>
+        <input id="thinPct" type="number" step="0.0005" min="0.0005" max="0.05" value="0.003" />
+      </div>
+      <div style="grid-column: span 3;">
+        <label for="thickMult">Thick border multiplier</label>
+        <input id="thickMult" type="number" step="0.1" min="1" max="20" value="7" />
+      </div>
+      <div style="grid-column: span 3;">
+        <label for="align">Stroke alignment</label>
+        <select id="align">
+          <option value="center" selected>Center</option>
+          <option value="inside">Inside</option>
+        </select>
+      </div>
+      <div style="grid-column: span 3; display:flex; align-items:flex-end;">
+        <div class="stack" style="width:100%">
+          <button class="btn secondary" id="copyLink">Copy link with settings</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview -->
+    <div id="previewWrap">
+      <div id="previewMeta">
+        <div class="muted">Live preview (vector-accurate). Updates as you edit.</div>
+        <div class="muted" id="aspectNote"></div>
+      </div>
+      <svg id="preview" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Year-on-a-Page preview"></svg>
+    </div>
+
+    <div class="hr"></div>
+    <div class="footer">
+      <div class="muted">
+        Two-pass borders (normal first, month-start on top) keep month cells uniformly outlined. “Inside” alignment emulates inset strokes.
+      </div>
+      <div class="muted">All client-side, single file. Base PDF fonts only.</div>
+    </div>
+  </div>
+
+<script>
+/* ========================== Utilities ========================== */
+const enc = new TextEncoder();
+
+function parseISODateUTC(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return null;
+  const y = Number(m[1]), mm = Number(m[2]) - 1, d = Number(m[3]); // 0-based month
+  return new Date(Date.UTC(y, mm, d));
+}
+function addDaysUTC(d, n) { const r = new Date(d.getTime()); r.setUTCDate(r.getUTCDate() + n); return r; }
+
+const DOW = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function toNum(x, def=0) { const n = Number(x); return Number.isFinite(n) ? n : def; }
+function toPoints(value, unit) {
+  const v = toNum(value, 0);
+  if (unit === 'in') return v * 72;
+  if (unit === 'mm') return v * 72 / 25.4;
+  if (unit === 'px') return v * 72 / 96;
+  return v;
+}
+function hexToRgb01(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return [0,0,0];
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return [r/255, g/255, b/255];
+}
+function rgbCmd([r,g,b]) { return `${num(r)} ${num(g)} ${num(b)}`; }
+function num(x) { return (Math.round(x * 1000) / 1000).toString(); }
+function pdfEscape(str) { return str.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)"); }
+function padXref(n) { const s = String(n); return "0000000000".slice(s.length) + s; }
+
+/* ======================= Fonts (PDF base fonts) ======================= */
+const FONT_MAP = {
+  "Courier":       { base: "/Courier",        adv: 0.600, css: "'Courier New', Courier, monospace", weight: 400 },
+  "Courier-Bold":  { base: "/Courier-Bold",   adv: 0.600, css: "'Courier New', Courier, monospace", weight: 700 },
+  "Helvetica":     { base: "/Helvetica",      adv: 0.556, css: "'Helvetica Neue', Helvetica, Arial, sans-serif", weight: 400 },
+  "Helvetica-Bold":{ base: "/Helvetica-Bold", adv: 0.556, css: "'Helvetica Neue', Helvetica, Arial, sans-serif", weight: 700 },
+  "Times-Roman":   { base: "/Times-Roman",    adv: 0.500, css: "'Times New Roman', Times, serif", weight: 400 },
+  "Times-Bold":    { base: "/Times-Bold",     adv: 0.500, css: "'Times New Roman', Times, serif", weight: 700 },
+};
+
+/* ======================= Data pipeline (R parity) ======================= */
+function buildCalendarData(firstISO, colors) {
+  const first_date = parseISODateUTC(firstISO);
+  if (!first_date) throw new Error("Invalid first_date; use YYYY-MM-DD.");
+
+  const seq = [];
+  for (let k = -13; k <= 372; k++) {
+    const d = addDaysUTC(first_date, k);
+    const dowIdx = d.getUTCDay();
+    seq.push({ date: d, dowIdx, dow: DOW[dowIdx], isSunday: (dowIdx === 0) });
+  }
+
+  let s = 0;
+  for (const r of seq) { if (r.isSunday) s += 1; r.sundays = s; }
+  const seq2 = seq.filter(r => r.sundays > 0);
+
+  const counts = new Map();
+  for (const r of seq2) counts.set(r.sundays, (counts.get(r.sundays) || 0) + 1);
+  const fullWeeks = new Set([...counts.entries()].filter(([,n]) => n === 7).map(([w]) => w));
+  const seq3 = seq2.filter(r => fullWeeks.has(r.sundays));
+
+  const minWeek = Math.min(...seq3.map(r => r.sundays));
+  const maxWeek = Math.max(...seq3.map(r => r.sundays));
+  const rows = maxWeek - minWeek + 1;
+
+  const out = seq3.map(r => {
+    const dom = r.date.getUTCDate();
+    const mon = MON_ABBR[r.date.getUTCMonth()];
+    const yr  = r.date.getUTCFullYear();
+
+    let to_print = String(dom);
+    if (dom === 1) to_print = mon;
+    if (mon === "Jan" && dom === 1) to_print = String(yr);
+
+    const isHeader = (r.sundays === minWeek);
+    if (isHeader) to_print = r.dow;
+
+    // text color
+    let textRGB = isHeader ? colors.monthStart : colors.daily;
+    if (mon === "Jan" && dom === 1) textRGB = colors.monthStart;
+
+    // border color (normal vs month-start; header has none)
+    const isMonthStart = (dom === 1);
+    let borderRGB = isHeader ? null : (isMonthStart ? colors.monthStart : colors.normalBorder);
+
+    return {
+      date: r.date,
+      yRow: r.sundays - minWeek,
+      xCol: r.dowIdx,
+      dom, alt_print: mon, yr,
+      to_print, isHeader,
+      textRGB, borderRGB, isMonthStart,
+      rows
+    };
+  });
+
+  return { cells: out, rows };
+}
+
+/* ======================= Layout helpers ======================= */
+function computeGeometry(widthPt, heightPt, marginPt, rows) {
+  const cols = 7;
+  const pad = Math.max(0, toNum(marginPt, 0));
+  const gridW = widthPt - 2*pad;
+  const gridH = heightPt - 2*pad;
+  const cellW = gridW / cols;
+  const cellH = gridH / rows;
+  return { cols, rows, pad, gridW, gridH, cellW, cellH };
+}
+
+/* ======================= Live SVG preview (top-left origin) ======================= */
+function escapeXML(s){ return s.replace(/[&<>'"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&apos;','"':'&quot;' }[c])); }
+
+function repaintPreview() {
+  try {
+    const s = getSettings();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s.firstISO)) return;
+
+    const { cells } = buildCalendarData(s.firstISO, {
+      daily: s.daily, monthStart: s.monthStart, normalBorder: s.normalBorder
+    });
+
+    const rows = cells[0]?.rows || 1;
+    const { pad, cellW, cellH } = computeGeometry(s.widthPt, s.heightPt, s.marginPt, rows);
+    const minSide = Math.min(cellW, cellH);
+    let thin = Math.max(0.2, minSide * s.thinPct);
+    let thick = Math.max(thin, thin * s.thickMult);
+    const maxStroke = Math.max(0.2, minSide * 0.25);
+    thin = Math.min(thin, maxStroke);
+    thick = Math.min(thick, maxStroke);
+
+    let normalRects = '';
+    let monthRects = '';
+    let texts = '';
+
+    for (const c of cells) {
+      const col = c.xCol;
+      const rowTopIdx = c.yRow;
+
+      const x = pad + col * cellW;
+      const yTop = pad + rowTopIdx * cellH; // SVG: top-left origin
+
+      if (c.borderRGB) {
+        const stroke = `rgb(${Math.round(c.borderRGB[0]*255)},${Math.round(c.borderRGB[1]*255)},${Math.round(c.borderRGB[2]*255)})`;
+        const lw = c.isMonthStart ? thick : thin;
+
+        let rx = x, ry = yTop, rw = cellW, rh = cellH;
+        if (s.align === 'inside') { rx += lw/2; ry += lw/2; rw -= lw; rh -= lw; if (rw < 0) rw = 0; if (rh < 0) rh = 0; }
+
+        const rect = `<rect x="${num(rx)}" y="${num(ry)}" width="${num(rw)}" height="${num(rh)}"
+           fill="none" stroke="${stroke}" stroke-width="${num(lw)}" vector-effect="non-scaling-stroke" />`;
+        if (c.isMonthStart) monthRects += rect; else normalRects += rect;
+      }
+
+      const fs = Math.max(6, cellH * 0.34);
+      const sstr = String(c.to_print);
+      const tx = x + cellW / 2;
+      const ty = yTop + (cellH + fs) / 2 - fs * 0.30;
+      const fill = `rgb(${Math.round(c.textRGB[0]*255)},${Math.round(c.textRGB[1]*255)},${Math.round(c.textRGB[2]*255)})`;
+      const weight = (getFontName().includes('Bold') ? 700 : 400);
+      const fm = FONT_MAP[getFontName()] || FONT_MAP["Courier-Bold"];
+
+      texts += `<text x="${num(tx)}" y="${num(ty)}" fill="${fill}" text-anchor="middle"
+         font-family="${fm.css}" font-weight="${weight}" font-size="${num(fs)}">${escapeXML(sstr)}</text>`;
+    }
+
+    const svgEl = document.getElementById('preview');
+    svgEl.setAttribute('viewBox', `0 0 ${num(s.widthPt)} ${num(s.heightPt)}`);
+    svgEl.innerHTML = normalRects + monthRects + texts;
+
+    const aspect = (s.widthPt / s.heightPt);
+    document.getElementById('aspectNote').textContent =
+      `Aspect: ${ (Math.round(aspect*100)/100).toFixed(2) } (page ${Math.round(s.widthPt)}×${Math.round(s.heightPt)} pt)`;
+  } catch (e) { /* silent */ }
+}
+
+/* ======================= Minimal PDF generator (bottom-left origin) ======================= */
+function makePDF({widthPt, heightPt, cells, marginPt=0, fontName="Courier-Bold", thinPct=0.003, thickMult=7, align="center"}) {
+  const rows = cells[0]?.rows || 1;
+  const { pad, cellW, cellH } = computeGeometry(widthPt, heightPt, marginPt, rows);
+  const minSide = Math.min(cellW, cellH);
+  let thin = Math.max(0.2, minSide * thinPct);
+  let thick = Math.max(thin, thin * thickMult);
+  const maxStroke = Math.max(0.2, minSide * 0.25);
+  thin = Math.min(thin, maxStroke);
+  thick = Math.min(thick, maxStroke);
+
+  const fm = FONT_MAP[fontName] || FONT_MAP["Courier-Bold"];
+  const charAdv = fm.adv;
+
+  let bordersLight = "0 J 0 j\n";
+  let bordersMonth = "";
+  let textContent  = "";
+
+  for (const c of cells) {
+    const col = c.xCol;
+    const rowTopIdx = c.yRow;
+    const x = pad + col * cellW;
+    const yBottom = pad + (rows - rowTopIdx - 1) * cellH; // PDF: bottom-left origin
+
+    if (c.borderRGB) {
+      const lw = c.isMonthStart ? thick : thin;
+      let rx = x, ry = yBottom, rw = cellW, rh = cellH;
+      if (align === 'inside') { rx += lw/2; ry += lw/2; rw -= lw; rh -= lw; if (rw < 0) rw = 0; if (rh < 0) rh = 0; }
+      const cmd = `${num(lw)} w\n${rgbCmd(c.borderRGB)} RG\n${num(rx)} ${num(ry)} ${num(rw)} ${num(rh)} re S\n`;
+      if (c.isMonthStart) bordersMonth += cmd; else bordersLight += cmd;
+    }
+
+    const fs = Math.max(6, cellH * 0.34);
+    const s = String(c.to_print);
+    const textW = s.length * fs * charAdv;
+    const tx = x + (cellW - textW) / 2;
+    const ty = yBottom + (cellH + fs) / 2 - fs * 0.30;
+
+    textContent += "BT\n/F1 " + num(fs) + " Tf\n";
+    textContent += rgbCmd(c.textRGB) + " rg\n";
+    textContent += `1 0 0 1 ${num(tx)} ${num(ty)} Tm\n`;
+    textContent += `(${pdfEscape(s)}) Tj\nET\n`;
+  }
+
+  const content = bordersLight + bordersMonth + textContent;
+  const contentBytes = enc.encode(content);
+  const len = contentBytes.length;
+
+  let parts = [], offsets = [], pos = 0;
+  const push = str => { const b = enc.encode(str); parts.push(b); pos += b.length; };
+  const pushBin = (u8) => { parts.push(u8); pos += u8.length; };
+  const mark = () => offsets.push(pos);
+
+  push("%PDF-1.4\n%âãÏÓ\n");
+  mark(); push("1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n");
+  mark(); push("2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n");
+  const base = FONT_MAP[getFontName()]?.base || "/Courier-Bold";
+  mark(); push(`3 0 obj
+<< /Type /Page
+   /Parent 2 0 R
+   /MediaBox [0 0 ${num(widthPt)} ${num(heightPt)}]
+   /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont ${base} >> >> >>
+   /Contents 5 0 R
+>>
+endobj
+`);
+  mark(); push(`5 0 obj\n<< /Length ${len} >>\nstream\n`);
+  pushBin(contentBytes);
+  push("\nendstream\nendobj\n");
+
+  const xrefStart = pos;
+  const objCount = 6;
+  push(`xref\n0 ${objCount}\n`);
+  push(padXref(0) + " 65535 f \n");
+  for (let i = 0; i < offsets.length; i++) push(padXref(offsets[i]) + " 00000 n \n");
+  push(`trailer\n<< /Size ${objCount} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`);
+
+  return new Blob(parts, { type: "application/pdf" });
+}
+
+/* ======================= Settings, Preview & Sharing ======================= */
+const el = (id) => document.getElementById(id);
+
+function defaultSettingsForCurrentYear() {
+  const y = new Date().getFullYear();
+  return {
+    firstISO: `${y}-09-01`,
+    unit: 'in',
+    width: '11',
+    height: '17',
+    margin: '0',
+    fontName: 'Courier-Bold',
+    daily: '#dbdbdb',
+    monthStart: '#242424',
+    normalBorder: '#dbdbdb',
+    thinPct: '0.003',
+    thickMult: '7',
+    align: 'center',
+  };
+}
+function applySettingsToControls(o) {
+  if (o.firstISO != null) el("firstDate").value = o.firstISO;
+  if (o.unit != null) el("unit").value = o.unit;
+  if (o.width != null) el("pageW").value = o.width;
+  if (o.height != null) el("pageH").value = o.height;
+  if (o.margin != null) el("margin").value = o.margin;
+  if (o.fontName != null) el("fontSel").value = o.fontName;
+  if (o.daily != null) el("dailyColor").value = o.daily;
+  if (o.monthStart != null) el("monthColor").value = o.monthStart;
+  if (o.normalBorder != null) el("normalBorderColor").value = o.normalBorder;
+  if (o.thinPct != null) el("thinPct").value = o.thinPct;
+  if (o.thickMult != null) el("thickMult").value = o.thickMult;
+  if (o.align != null) el("align").value = o.align;
+}
+function getSettings() {
+  const u = el("unit").value;
+  const y = el("firstDate").value.trim();
+  return {
+    firstISO: y,
+    widthPt: toPoints(el("pageW").value, u),
+    heightPt: toPoints(el("pageH").value, u),
+    unit: u,
+    marginPt: toNum(el("margin").value || 0, 0),
+    fontName: el("fontSel").value,
+    daily: hexToRgb01(el("dailyColor").value || "#dbdbdb"),
+    monthStart: hexToRgb01(el("monthColor").value || "#242424"),
+    normalBorder: hexToRgb01(el("normalBorderColor").value || "#dbdbdb"),
+    thinPct: toNum(el("thinPct").value || 0.003, 0.003),
+    thickMult: toNum(el("thickMult").value || 7, 7),
+    align: el("align").value,
+  };
+}
+function setSettingsFromObject(o) { applySettingsToControls(o); }
+
+function serializeToHash() {
+  const s = getSettings();
+  const params = new URLSearchParams({
+    d: s.firstISO,
+    w: String(el("pageW").value),
+    h: String(el("pageH").value),
+    u: s.unit,
+    m: String(el("margin").value),
+    f: el("fontSel").value,
+    c1: el("dailyColor").value,
+    c2: el("monthColor").value,
+    c3: el("normalBorderColor").value,
+    tp: String(s.thinPct),
+    tm: String(s.thickMult),
+    al: s.align,
+  });
+  return '#' + params.toString();
+}
+function parseFromHash() {
+  if (!location.hash || location.hash.length < 2) return null;
+  const params = new URLSearchParams(location.hash.slice(1));
+  const o = {
+    firstISO: params.get('d') || undefined,
+    width: params.get('w') || undefined,
+    height: params.get('h') || undefined,
+    unit: params.get('u') || undefined,
+    margin: params.get('m') || undefined,
+    fontName: params.get('f') || undefined,
+    daily: params.get('c1') || undefined,
+    monthStart: params.get('c2') || undefined,
+    normalBorder: params.get('c3') || undefined,
+    thinPct: params.get('tp') || undefined,
+    thickMult: params.get('tm') || undefined,
+    align: params.get('al') || undefined,
+  };
+  return o;
+}
+
+/* ======================= PDF Download & Sharing ======================= */
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+function currentCellsForExport() {
+  const s = getSettings();
+  const { cells } = buildCalendarData(s.firstISO, {
+    daily: s.daily, monthStart: s.monthStart, normalBorder: s.normalBorder
+  });
+  return { s, cells };
+}
+function humanDims(w, h, u) {
+  const fmt = v => (Math.round(Number(v) * 100) / 100).toString().replace(/\.0+$/,'');
+  return `${fmt(w)}x${fmt(h)}${u}`;
+}
+function persistSettings() {
+  const hash = serializeToHash();
+  history.replaceState(null, '', hash);
+  const obj = {
+    firstISO: el("firstDate").value,
+    width: el("pageW").value, height: el("pageH").value, unit: el("unit").value,
+    margin: el("margin").value, fontName: el("fontSel").value,
+    daily: el("dailyColor").value, monthStart: el("monthColor").value, normalBorder: el("normalBorderColor").value,
+    thinPct: el("thinPct").value, thickMult: el("thickMult").value, align: el("align").value
+  };
+  localStorage.setItem('yoap_settings', JSON.stringify(obj));
+}
+
+/* ======================= Reset & Wire up UI ======================= */
+function resetToDefaults() {
+  const defaults = defaultSettingsForCurrentYear();
+  applySettingsToControls(defaults);
+  history.replaceState(null, '', ' ');
+  localStorage.setItem('yoap_settings', JSON.stringify(defaults));
+  repaintPreview();
+}
+
+function getFontName(){ return el("fontSel").value; }
+
+function bindLive(id){
+  const node = el(id);
+  if (!node) return;
+  const handler = () => { repaintPreview(); persistSettings(); };
+  node.addEventListener('input', handler, { passive: true });
+  node.addEventListener('change', handler, { passive: true });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const y = new Date().getFullYear();
+  const sept1 = `${y}-09-01`;
+
+  const fromHash = parseFromHash();
+  if (fromHash) setSettingsFromObject(fromHash);
+  else {
+    const saved = localStorage.getItem('yoap_settings');
+    if (saved) try { setSettingsFromObject(JSON.parse(saved)); } catch {}
+  }
+  if (!el("firstDate").value) el("firstDate").value = sept1;
+
+  const sampleBtn = el("trySample");
+  sampleBtn.textContent = `Try ${sept1} on 11×17 in`;
+  sampleBtn.dataset.sampleDate = sept1;
+
+  ["firstDate","pageW","pageH","unit","margin",
+   "fontSel","dailyColor","monthColor","normalBorderColor",
+   "thinPct","thickMult","align"].forEach(bindLive);
+
+  el("trySample").addEventListener("click", () => {
+    resetToDefaults();
+    const yNow = new Date().getFullYear();
+    el("trySample").textContent = `Try ${yNow}-09-01 on 11×17 in`;
+  });
+
+  el("genBtn").addEventListener("click", () => {
+    try {
+      const { s, cells } = currentCellsForExport();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(s.firstISO)) throw new Error("Invalid date format; use YYYY-MM-DD.");
+      if (!(s.widthPt > 72 && s.heightPt > 72)) throw new Error("Page size too small.");
+
+      const pdf = makePDF({
+        widthPt: s.widthPt, heightPt: s.heightPt, cells, marginPt: s.marginPt,
+        fontName: s.fontName, thinPct: s.thinPct, thickMult: s.thickMult, align: s.align
+      });
+      const fname = `year-on-a-page_${s.firstISO}_${humanDims(el("pageW").value, el("pageH").value, s.unit)}.pdf`;
+      downloadBlob(pdf, fname);
+    } catch (err) { alert(err.message || String(err)); }
+  });
+
+  el("copyLink").addEventListener("click", async () => {
+    const hash = serializeToHash();
+    history.replaceState(null, '', hash);
+    try {
+      await navigator.clipboard.writeText(location.href);
+      el("copyLink").textContent = "Link copied ✔";
+      setTimeout(() => el("copyLink").textContent = "Copy link with settings", 1400);
+    } catch {
+      prompt("Copy this URL:", location.href);
+    }
+  });
+
+  repaintPreview();
+});
+</script>
+</body>
+</html>
